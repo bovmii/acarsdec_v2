@@ -33,7 +33,7 @@ import argparse
 from datetime import datetime
 import numpy as np
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 # f00b4r0/acarsdec demod parameters (the fork that decodes our TX signal)
 INTRATE = 12000
@@ -361,7 +361,7 @@ def _read_exact(fd, n, stall_after):
 
 def live(freqs_hz, gain, ppm=0, verbose=False, logpath=None, save=None,
          fmt="full", station=None, only_labels=None, skip_empty=False,
-         downlink_only=False):
+         downlink_only=False, analyse=False):
     """Continuous multi-channel ACARS listen on one RTL-SDR."""
     import subprocess
     freqs = sorted(set(int(round(f)) for f in freqs_hz))
@@ -479,7 +479,8 @@ def live(freqs_hz, gain, ppm=0, verbose=False, logpath=None, save=None,
                     msg["freq"] = f
                     if keep_message(msg, only_labels, skip_empty, downlink_only):
                         count += 1
-                        emit_message(msg, fmt=fmt, station=station, logpath=logpath)
+                        emit_message(msg, fmt=fmt, station=station,
+                                     logpath=logpath, analyse=analyse)
             if verbose:
                 chunks += 1
                 if chunks % 16 == 0:        # ~ every 4 s
@@ -589,22 +590,73 @@ def render_message(m, fmt="full", station=None):
     return "\n".join(lines)
 
 
-def emit_message(m, fmt="full", station=None, logpath=None):
-    print(render_message(m, fmt, station))
+_analyser = False       # set by --analyse, holds the imported module
+
+
+def load_analyser():
+    """analyse_acars.py sits next to this script and explains a message field by
+    field. It stays optional: the decoder is self-contained and must keep
+    working on its own if that file is not there."""
+    global _analyser
+    if _analyser is not False:
+        return _analyser
+    _analyser = None
+    here = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(here, "analyse_acars.py")
+    if os.path.exists(path):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("analyse_acars", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.load_data()
+            _analyser = mod
+        except Exception as exc:
+            print("[rx] analyser not loaded: %s" % exc)
+    else:
+        print("[rx] --analyse needs analyse_acars.py next to this script.")
+    return _analyser
+
+
+def render_analysis(m, freq=None):
+    """Field by field reading of one message, as analyse_acars would print it."""
+    mod = load_analyser()
+    if mod is None:
+        return ""
+    f = parse_acars(m["text"]) or {}
+    row = {
+        "time": m["time"].strftime("%Y-%m-%d %H:%M:%S"),
+        "freq": (freq or m.get("freq") or 0) / 1e6,
+        "level": m["level"], "err": m["parity_errors"], "crc_ok": m["crc_ok"],
+        "mode": f.get("mode", ""), "label": f.get("label", ""),
+        "blk": f.get("blk", ""), "ack": f.get("ack", ""),
+        "reg": f.get("addr", ""), "text": f.get("text", ""),
+    }
+    return "\n".join(mod.table(mod.analyse(row)))
+
+
+def emit_message(m, fmt="full", station=None, logpath=None, analyse=False):
+    out = render_message(m, fmt, station)
+    if analyse:
+        extra = render_analysis(m, m.get("freq"))
+        if extra:
+            out += "\n" + extra
+    print(out)
     if logpath:
         try:
             with open(logpath, "a") as fh:
-                fh.write(render_message(m, fmt, station) + "\n")
+                fh.write(out + "\n")
         except OSError as exc:
             print("[rx] log warning: %s" % exc)
 
 
-def print_messages(dm, logpath=None, fmt="full", station=None,
+def print_messages(dm, logpath=None, fmt="full", station=None, analyse=False,
                    only_labels=None, skip_empty=False, downlink_only=False):
     shown = 0
     for m in dm.messages:
         if keep_message(m, only_labels, skip_empty, downlink_only):
-            emit_message(m, fmt=fmt, station=station, logpath=logpath)
+            emit_message(m, fmt=fmt, station=station, logpath=logpath,
+                         analyse=analyse)
             shown += 1
     if shown == 0:
         print("[rx] no message decoded")
@@ -652,6 +704,12 @@ AFFICHAGE ET FILTRES
   -A, --downlink-only      ne garder que les liaisons descendantes (approximatif)
   -i, --station <nom>      identifiant de station affiche dans la sortie
   -v, --verbose            afficher periodiquement l etat de reception (niveau)
+  -a, --analyse            expliquer chaque message champ par champ : compagnie,
+                           route, chapitre ATA, position et distance, station
+                           sol, heures UTC, abreviations du metier. Demande le
+                           fichier analyse_acars.py a cote du script.
+                           Le meme outil s utilise seul sur un journal :
+                               python3 analyse_acars.py mon_log.txt --positions
 
 ENREGISTREMENT
       --log                DESACTIVE par defaut. Utilise seul, cree un fichier
@@ -829,6 +887,8 @@ def main():
     g_out.add_argument("-i", "--station", default=None,
                        help="station id (shown in full/json)")
     # common
+    p.add_argument("-a", "--analyse", action="store_true",
+                   help="explain each message field by field (needs analyse_acars.py)")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="every ~4 s, print the current signal level per channel, on the same dB scale as the L: of a decoded message. Flat value = noise floor (nothing on air); a jump = a signal is present. Relative dB, not dBm: compare values, not absolutes.")
     p.add_argument("--log", nargs="?", const="AUTO", default=None, metavar="FILE",
@@ -867,7 +927,8 @@ def main():
     if args.live or not args.input:
         return live([f * 1e6 for f in args.freq], args.gain, ppm=args.ppm,
                     verbose=args.verbose, logpath=logpath, save=args.save,
-                    fmt=args.fmt, station=args.station, **filt)
+                    fmt=args.fmt, station=args.station,
+                    analyse=args.analyse, **filt)
 
     if args.input.lower().endswith(".wav"):
         from scipy.io import wavfile
@@ -887,7 +948,8 @@ def main():
             if dm.messages:
                 if len(channels) > 1:
                     print("[rx] channel %d:" % ci)
-                print_messages(dm, logpath, fmt=args.fmt, station=args.station, **filt)
+                print_messages(dm, logpath, fmt=args.fmt, station=args.station,
+                               analyse=args.analyse, **filt)
                 return
         print("[rx] no message decoded (across %d channel(s))" % len(channels))
     else:
@@ -895,7 +957,8 @@ def main():
         audio = iq_to_audio(iq, args.fs, args.carrier)
         dm = AcarsDemod()
         dm.feed(_with_leadin(audio))
-        print_messages(dm, logpath, fmt=args.fmt, station=args.station, **filt)
+        print_messages(dm, logpath, fmt=args.fmt, station=args.station,
+                               analyse=args.analyse, **filt)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # ACARS Decoder - acarsdec_v2.py (English version)
 
-**Version 1.2**
+**Version 1.3**
 
 *French version: see `README_ACARS_RX_FR.md`.*
 
@@ -166,6 +166,7 @@ acarsdecv2 recording.wav
 | `-A, --downlink-only` | keep only aircraft-to-ground (approx.) | - |
 | `-i, --station <id>` | station id (shown in full/json) | - |
 | `-v, --verbose` | periodic reception status (live mode) | - |
+| `-a, --analyse` | explain each message field by field (see below) | - |
 | `--log [file]` | save decoded messages (see Saving messages) | disabled |
 
 In live mode the RTL sample rate is chosen automatically to cover all requested
@@ -196,6 +197,37 @@ acarsdecv2 -f 131.550 2>&1 | tee out.txt   # capture errors too
 `tee` needs **both**: the pipe `|` before it, and a **file name** after it.
 Without a file name it saves nothing, it just echoes to the screen. And without
 `-a` it overwrites the file on every run.
+
+### Explaining a message field by field
+
+```bash
+acarsdecv2 -f 131.550 -g 40 --analyse      # live
+acarsdecv2 recording.wav --analyse         # on a file
+```
+
+Each decoded message is followed by a table that reads it out: airline and
+flight, route, ATA chapter, position with its distance and bearing from the
+receiver, ground station, UTC stamps, and the trade abbreviations in the free
+text.
+
+```
+2026-07-28 10:15:03  131.550 MHz  (L:+44.8 dB  err:0)
+Aircraft reg: C-FDCA
+Text: M68AAC0638MMSNG AC0638/28/28/YYZYSJ/1414Z/405/1/32-00 /213540 /...
++------------+-------------------------------------------------------------+
+| Field      | Meaning                                                     |
++============+=============================================================+
+| C-FDCA     | aircraft registration, Canada                               |
+| AC0638     | Air Canada flight 638                                       |
+| YYZYSJ     | Toronto-Pearson to Saint John                               |
+| 1414Z      | 14:14 UTC                                                   |
+| 32-00      | ATA chapter 32 = landing gear and brakes                    |
+| QRH        | Quick Reference Handbook, the emergency procedures manual   |
++------------+-------------------------------------------------------------+
+```
+
+This needs `analyse_acars.py` next to the script (section 7). Without it the
+decoder still works, it just says so.
 
 ### Which frequencies to listen to
 
@@ -327,3 +359,48 @@ Only the `tail` can freeze then, and the capture keeps running.
 - Decodes the **RFSoC** transmission live via the RTL: valid CRC.
 - Robustness (chaos monkey test): no crash on adversarial inputs, and no false
   positive (noise never produces a valid-CRC message).
+
+---
+
+## 7. The analyser
+
+`analyse_acars.py` does the same reading on saved logs, and adds two views the
+live mode cannot give.
+
+```bash
+python3 analyse_acars.py my_logs/*.txt              # every message, explained
+python3 analyse_acars.py log.txt --summary          # aggregate only
+python3 analyse_acars.py log.txt --positions        # positions, map, speeds
+python3 analyse_acars.py log.txt --reg C-FDCA       # one aircraft
+python3 analyse_acars.py log.txt --text BRAKE -n 5  # search, detail 5
+python3 analyse_acars.py log.txt --crc-ok           # drop corrupted frames
+python3 analyse_acars.py log.txt --pos 45.50,-73.57 # another reference point
+```
+
+`--positions` lists every reported position with its distance and bearing, draws
+a plain text map, and **derives ground speed and track** from two reports of the
+same aircraft. ACARS transmits neither, so a plausible figure (a jet cruises
+around 800 to 950 km/h) is a strong check that both positions were decoded
+without a single wrong bit.
+
+### Reference tables
+
+`acars_data.csv` holds **31 361 airports, aerodromes, heliports and seaplane
+bases** and **6 087 airlines**. It was built once from OurAirports (public
+domain) and OpenFlights, and is **read from disk only: the analyser never
+touches the network**. Without the file it falls back to smaller built-in
+tables and still runs.
+
+### What it will not do
+
+It only reports what it identifies. Many ACARS labels are airline specific, so
+it says "airline defined" rather than inventing a meaning, and it never claims a
+location for a ground station.
+
+Detection is deliberately conservative, because a full airport table makes plain
+English words look like routes: `WEIGHT` splits into WEI + GHT, `RUNWAY` into
+RUN + WAY, and `SYS` in "BRAKE SYS 2 FAULT" is a real IATA code in Russia.
+Airport codes are therefore only read from slash delimited fields, and flight
+numbers need four digits and a known airline code. Aggregate figures ignore
+frames the CRC rejected, since a corrupted body yields plausible looking
+nonsense.
