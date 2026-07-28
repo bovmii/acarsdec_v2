@@ -27,6 +27,8 @@ import sys
 import os
 import json
 import math
+import time
+import select
 import argparse
 from datetime import datetime
 import numpy as np
@@ -312,6 +314,51 @@ def _choose_rtl_fs(max_offset_hz):
     return _RTL_RATES[-1]
 
 
+# Getting no data at all for this long means the RTL stopped feeding us. It
+# usually stays alive while doing so, so a plain read() waits forever.
+STALL_SECONDS = 30
+MAX_RESTARTS = 5
+# A stream that ran this long before dying counts as a fresh incident rather
+# than one more failed retry, so an overnight capture keeps its full budget
+# every time, while a dongle dying right after each restart still gives up.
+HEALTHY_SECONDS = 30
+
+
+def _note(text, logpath=None):
+    """Timestamped operational note, on screen and in the --log. Without it an
+    interrupted capture just stops, and nothing says it was not the end."""
+    line = "[rx] %s  %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), text)
+    print(line)
+    if logpath:
+        try:
+            with open(logpath, "a") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+
+
+def _read_exact(fd, n, stall_after):
+    """Read exactly n bytes from the RTL pipe.
+
+    Returns the bytes, or b'' if the pipe closed (rtl_sdr exited), or None if
+    nothing arrived for stall_after seconds (rtl_sdr still alive but no longer
+    sending). A plain read() cannot tell those two apart: it just blocks.
+    """
+    buf = bytearray()
+    last = time.monotonic()
+    while len(buf) < n:
+        ready, _, _ = select.select([fd], [], [], 1.0)
+        if ready:
+            data = os.read(fd, n - len(buf))
+            if not data:
+                return b""
+            buf += data
+            last = time.monotonic()
+        elif time.monotonic() - last > stall_after:
+            return None
+    return bytes(buf)
+
+
 def live(freqs_hz, gain, ppm=0, verbose=False, logpath=None, save=None,
          fmt="full", station=None, only_labels=None, skip_empty=False,
          downlink_only=False):
@@ -337,34 +384,88 @@ def live(freqs_hz, gain, ppm=0, verbose=False, logpath=None, save=None,
              gain, ", ppm %d" % ppm if ppm else ""))
     print("[rx] Ctrl+C to stop. Waiting for messages...")
     import threading
-    try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError:
-        print("[rx] 'rtl_sdr' not found. Install the rtl-sdr tools (see README).")
-        return
 
     def _relay(pipe):                 # relay the RTL's own messages (device, tuner, errors)
         for line in iter(pipe.readline, b""):
             txt = line.decode("utf-8", "replace").rstrip()
             if txt:
                 print("[rtl] " + txt)
-    threading.Thread(target=_relay, args=(p.stderr,), daemon=True).start()
+
+    def _start():
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        threading.Thread(target=_relay, args=(proc.stderr,), daemon=True).start()
+        return proc
+
+    def _stop(proc):
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+
+    try:
+        p = _start()
+    except FileNotFoundError:
+        print("[rx] 'rtl_sdr' not found. Install the rtl-sdr tools (see README).")
+        return 1
 
     chunk_bytes = int(fs_in * 0.25) * 2
     fsave = open(save, "wb") if save else None
     count = 0
     chunks = 0
-    got_data = False
+    rc = 0
+    ever_data = False      # any data at all so far, i.e. the dongle does work
+    consecutive = 0        # failed restarts that did not stay up long enough
+    stream_since = None    # when the current rtl_sdr started delivering
+    last_data = 0.0        # when it last actually delivered
+    resumed = False        # a restart happened, announce the first data back
     try:
         while True:
-            raw = p.stdout.read(chunk_bytes)
-            if not raw:
-                if not got_data:
+            raw = _read_exact(p.stdout.fileno(), chunk_bytes, STALL_SECONDS)
+            if raw is None or raw == b"":
+                # Either the RTL went quiet while staying alive (None) or its
+                # process is gone (b''). Both used to end the capture without a
+                # word: read() blocked forever on the first, and the loop broke
+                # silently on the second.
+                why = ("the RTL stopped sending data (rtl_sdr still running)"
+                       if raw is None else "rtl_sdr exited")
+                if not ever_data:
                     p.wait()
                     print("[rx] No data from the RTL-SDR. Is it plugged in and free? "
                           "(check the [rtl] lines above)")
-                break
-            got_data = True
+                    rc = 1
+                    break
+                # how long it actually delivered, not counting the silence we
+                # just waited through, so a stream that dies at once is not
+                # mistaken for a healthy one
+                lasted = last_data - stream_since if stream_since else 0.0
+                consecutive = 1 if lasted >= HEALTHY_SECONDS else consecutive + 1
+                stream_since = None
+                if consecutive > MAX_RESTARTS:
+                    _note("%s. Gave up after %d attempts, %d message(s) received."
+                          % (why, MAX_RESTARTS, count), logpath)
+                    rc = 1
+                    break
+                _note("%s after %ds. Restarting it (%d/%d), %d message(s) so far."
+                      % (why, lasted, consecutive, MAX_RESTARTS, count), logpath)
+                _stop(p)
+                time.sleep(2)          # let the USB settle before reopening
+                try:
+                    p = _start()
+                except FileNotFoundError:
+                    print("[rx] 'rtl_sdr' not found. Install the rtl-sdr tools "
+                          "(see README).")
+                    rc = 1
+                    break
+                resumed = True
+                continue
+            if resumed:
+                _note("RTL back, capture continues.", logpath)
+                resumed = False
+            if stream_since is None:
+                stream_since = time.monotonic()
+            last_data = time.monotonic()
+            ever_data = True
             if fsave:
                 fsave.write(raw)
             b = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
@@ -394,9 +495,10 @@ def live(freqs_hz, gain, ppm=0, verbose=False, logpath=None, save=None,
     except KeyboardInterrupt:
         print("\n[rx] stopped. %d message(s) received." % count)
     finally:
-        p.terminate()
+        _stop(p)
         if fsave:
             fsave.close()
+    return rc
 
 
 def parse_acars(txt):
@@ -742,10 +844,9 @@ def main():
 
     # live listening is the default whenever no file is given
     if args.live or not args.input:
-        live([f * 1e6 for f in args.freq], args.gain, ppm=args.ppm,
-             verbose=args.verbose, logpath=logpath, save=args.save,
-             fmt=args.fmt, station=args.station, **filt)
-        return
+        return live([f * 1e6 for f in args.freq], args.gain, ppm=args.ppm,
+                    verbose=args.verbose, logpath=logpath, save=args.save,
+                    fmt=args.fmt, station=args.station, **filt)
 
     if args.input.lower().endswith(".wav"):
         from scipy.io import wavfile
@@ -777,4 +878,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
