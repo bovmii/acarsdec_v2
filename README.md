@@ -23,9 +23,11 @@ painful on our bench (dependencies, rejected file formats, finicky RTL config).
 My decoder is a **single Python file**, runs identically on **Linux and macOS**,
 and I control every step, which let me debug the RFSoC ACARS transmitter.
 
-I validated it on real ACARS (a `test.wav` recording, 2 messages decoded with a
-valid CRC) and on the **RFSoC** transmission decoded live (valid CRC), which
-proves that our board's ACARS modulation is correct.
+I validated it three ways. On a `test.wav` recording (2 messages, valid CRC).
+On the **RFSoC** transmission decoded live, which proves that our board's ACARS
+modulation is correct. And on **real air traffic**: 201 messages from 20
+aircraft in one morning over a rooftop antenna in Montreal, 94 % of them passing
+the CRC, the farthest one 280 km away. That capture is in the repository.
 
 ---
 
@@ -356,7 +358,13 @@ Only the `tail` can freeze then, and the capture keeps running.
 - Decodes our own signal (`acars_tx.py`): valid CRC.
 - Decodes a real ACARS recording (`test.wav`): 2 messages, valid CRC, where the
   real acarsdec refuses to even open the file (12500 Hz).
-- Decodes the **RFSoC** transmission live via the RTL: valid CRC.
+- Decodes the **RFSoC** transmission live via the RTL: valid CRC. It also
+  carried a 73 character ATS message unchanged, not just a short test string.
+- Decodes **real air traffic** over an antenna: 201 messages, 20 aircraft,
+  **94 % valid CRC**, range measured at **280 km** (`acquisition_2026-07-28.txt`).
+- Cross-checked without trusting the CRC: two position reports from one aircraft
+  give a **ground speed of 848 to 933 km/h**, a jet cruise speed. A single wrong
+  bit in a position would show up as an absurd figure.
 - Robustness (chaos monkey test): no crash on adversarial inputs, and no false
   positive (noise never produces a valid-CRC message).
 

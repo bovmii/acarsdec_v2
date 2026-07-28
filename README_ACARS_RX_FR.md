@@ -24,9 +24,12 @@ refuses, config RTL capricieuse). Mon decodeur tient dans **un seul fichier
 Python**, tourne a l'identique sur **Linux et macOS**, et je controle
 chaque etape, ce qui m'a permis de debugger l'emission ACARS du RFSoC.
 
-Je l'ai valide sur du vrai ACARS (un enregistrement `test.wav`, 2 messages
-decodes avec CRC valide) et sur l'emission du **RFSoC** decodee en direct
-(CRC valide), ce qui prouve que la modulation ACARS de notre carte est correcte.
+Je l'ai valide de trois facons. Sur un enregistrement `test.wav` (2 messages,
+CRC valide). Sur l'emission du **RFSoC** decodee en direct, ce qui prouve que la
+modulation ACARS de notre carte est correcte. Et sur du **vrai trafic aerien** :
+201 messages de 20 avions en une matinee, avec une antenne en toiture a
+Montreal, dont 94 % passent le CRC, le plus lointain a 280 km. Cette capture est
+dans le depot.
 
 ---
 
@@ -359,7 +362,16 @@ Seul le `tail` peut se figer, la capture continue.
 - Decode notre propre signal (`acars_tx.py`) : CRC valide.
 - Decode un vrai enregistrement ACARS (`test.wav`) : 2 messages, CRC valide,
   la ou le vrai acarsdec refuse meme d'ouvrir le fichier (12500 Hz).
-- Decode l'emission du **RFSoC** en direct via le RTL : CRC valide.
+- Decode l'emission du **RFSoC** en direct via le RTL : CRC valide. Elle a aussi
+  transporte sans alteration un message ATS de 73 caracteres, pas seulement une
+  courte chaine de test.
+- Decode du **vrai trafic aerien** a l'antenne : 201 messages, 20 avions,
+  **94 % de CRC valides**, portee mesuree a **280 km**
+  (`acquisition_2026-07-28.txt`).
+- Recoupe sans faire confiance au CRC : deux comptes rendus de position d'un
+  meme avion donnent une **vitesse sol de 848 a 933 km/h**, soit une vitesse de
+  croisiere de jet. Un seul bit faux dans une position donnerait un chiffre
+  absurde.
 - Robustesse (test chaos monkey) : aucun plantage sur entrees adverses, et
   aucun faux positif (le bruit ne produit jamais de message a CRC valide).
 
