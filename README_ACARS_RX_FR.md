@@ -386,6 +386,25 @@ deux comptes rendus du meme avion. L ACARS ne transmet ni l une ni l autre, donc
 une valeur plausible (un jet croise entre 800 et 950 km/h) est une preuve solide
 que les deux positions ont ete decodees sans un seul bit faux.
 
+### Capture d exemple
+
+`acquisition_2026-07-28.txt` est une **vraie capture sur l air** : 201 messages
+de 20 avions, enregistres sur 131.550 MHz avec une antenne en toiture a
+Montreal le 28 juillet 2026, sept sessions fusionnees en un seul fichier. 94 %
+des trames passent le CRC, 14 portent une position, et l avion le plus lointain
+etait a 280 km.
+
+```bash
+python3 analyse_acars.py acquisition_2026-07-28.txt --summary
+python3 analyse_acars.py acquisition_2026-07-28.txt --positions
+python3 analyse_acars.py acquisition_2026-07-28.txt --text BRAKE
+```
+
+La derniere commande fait ressortir un message de maintenance d Air Canada
+signalant une panne du circuit de freinage en vol, avec la procedure QRH qui l a
+resolue. Il est la pour qu on puisse essayer l analyseur sur du trafic reel sans
+posseder de recepteur.
+
 ### Les tables de reference
 
 `acars_data.csv` contient **31 361 aeroports, aerodromes, heliports et bases

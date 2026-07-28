@@ -383,6 +383,23 @@ same aircraft. ACARS transmits neither, so a plausible figure (a jet cruises
 around 800 to 950 km/h) is a strong check that both positions were decoded
 without a single wrong bit.
 
+### Sample capture
+
+`acquisition_2026-07-28.txt` is a **real over the air capture**: 201 messages
+from 20 aircraft, recorded on 131.550 MHz over a rooftop antenna in Montreal on
+28 July 2026, seven runs merged into one file. 94 % of the frames pass the CRC,
+14 carry a position, and the farthest aircraft was 280 km away.
+
+```bash
+python3 analyse_acars.py acquisition_2026-07-28.txt --summary
+python3 analyse_acars.py acquisition_2026-07-28.txt --positions
+python3 analyse_acars.py acquisition_2026-07-28.txt --text BRAKE
+```
+
+That last one pulls out an Air Canada maintenance message reporting a brake
+system fault in flight, with the QRH reset that fixed it. It is there so the
+analyser can be tried on real traffic without owning a receiver.
+
 ### Reference tables
 
 `acars_data.csv` holds **31 361 airports, aerodromes, heliports and seaplane
