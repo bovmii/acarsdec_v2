@@ -1,6 +1,6 @@
 # Decodeur ACARS - acarsdec_v2.py (version francaise)
 
-**Version 1.1**
+**Version 1.2**
 
 *English version: voir `README.md`.*
 
@@ -274,6 +274,53 @@ Le meme bloc est ajoute au fichier de log si tu as utilise `--log`.
   (`pkill acarsdec` ; `sudo systemctl stop readsb`).
 - **`aucun message decode` sur un fichier** : verifier `--fs` et `--format`,
   ou forcer `--carrier <Hz>`.
+- **Moins de messages au gain maximum** : plus de gain ne veut pas dire plus de
+  sensibilite. Sur mon R820T le plancher de bruit passe de **+5 dB a gain 40 a
+  +11 dB a 49.6**, et les avions lointains s y noient. Commencer vers 40 et ne
+  monter que si les niveaux sont trop faibles.
+
+### Le compteur n avance plus mais tout va bien
+
+Les lignes `[rx] N message(s) | level ...` du `-v` sont le signe de vie. Tant
+qu elles tombent toutes les 4 s, la chaine fonctionne, meme si le compteur ne
+bouge pas : ca veut simplement dire que personne n emet. Des trous de plus d une
+minute sont normaux sur un canal calme. Ce n est anormal que si **ces lignes
+s arretent completement**.
+
+### Si la RTL lache en cours de capture
+
+La RTL peut cesser d alimenter le decodeur de deux facons : le processus
+`rtl_sdr` se termine, ou il reste vivant sans plus rien envoyer (blocage USB).
+Les deux terminaient la capture en silence. Elles sont maintenant detectees,
+annoncees avec l heure **a l ecran et dans le `--log`**, et la RTL est relancee
+automatiquement :
+
+```
+[rx] 2026-07-28 10:09:37  the RTL stopped sending data (rtl_sdr still running) after 214s. Restarting it (1/5), 34 message(s) so far.
+[rx] 2026-07-28 10:09:39  RTL back, capture continues.
+```
+
+Abandon apres 5 echecs consecutifs, avec un code de retour 1 au lieu de 0 : une
+capture de nuit qui a lache ne passe plus pour une capture terminee. Un flux qui
+a tenu au moins 30 s compte comme un incident neuf, donc un simple hoquet USB ne
+consomme pas le quota de relances.
+
+### L affichage se fige mais le programme tourne toujours
+
+Si la sortie s arrete net alors que le programme est clairement vivant (`Ctrl+C`
+repond encore), c est le **terminal** qui bloque, pas le decodeur. Son tampon ne
+fait que 1 Ko sur macOS : des qu il cesse d etre vide, et un `Ctrl+S` parti tout
+seul en est la cause habituelle, le decodeur se bloque en moins d une minute.
+
+Appuie sur **`Ctrl+Q`** : tout redefile d un coup et rien n est perdu. Pour
+l eviter completement, garde le decodeur hors du terminal :
+
+```bash
+acarsdecv2 -f 131.550 -g 40 -v --log > ~/Bureau/sortie.txt 2>&1 &
+tail -f ~/Bureau/sortie.txt
+```
+
+Seul le `tail` peut se figer, la capture continue.
 
 ---
 

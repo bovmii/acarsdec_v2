@@ -33,7 +33,7 @@ import argparse
 from datetime import datetime
 import numpy as np
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 # f00b4r0/acarsdec demod parameters (the fork that decodes our TX signal)
 INTRATE = 12000
@@ -693,6 +693,27 @@ FREQUENCES ACARS
   Banc de test RFSoC          : celle reglee dans la GUI (131.525 ou 136.950)
   Astuce : plusieurs frequences a la fois seulement si elles sont proches
   (moins de ~2 MHz d ecart), sinon elles sortent de la bande de la RTL.
+
+SI LA RTL LACHE EN COURS DE CAPTURE
+  Deux pannes possibles : le processus rtl_sdr se termine, ou il reste vivant
+  mais n envoie plus rien (blocage USB). Les deux sont detectees, annoncees
+  avec l heure a l ecran ET dans le --log, et la RTL est relancee toute seule :
+      [rx] 2026-07-28 10:09:37  the RTL stopped sending data ... Restarting it (1/5)
+      [rx] 2026-07-28 10:09:39  RTL back, capture continues.
+  Abandon apres 5 echecs de suite, avec un code de retour 1 au lieu de 0. Un
+  flux qui a tenu au moins 30 s compte comme un incident neuf, donc un simple
+  hoquet USB ne consomme pas le quota.
+
+SI L AFFICHAGE SE FIGE MAIS QUE LE PROGRAMME TOURNE
+  Si les lignes [rx] ... level s arretent net alors que tout va bien par
+  ailleurs, c est le TERMINAL qui bloque, pas le decodeur. Son tampon ne fait
+  que 1 Ko sur macOS : des qu il cesse d etre vide (un Ctrl+S parti tout seul
+  est la cause habituelle), le decodeur se bloque en moins d une minute.
+  Appuie sur Ctrl+Q : tout redefile d un coup, rien n est perdu.
+  Pour l eviter, garde le decodeur hors du terminal :
+      acarsdecv2 -f 131.550 -g 40 -v --log > ~/Bureau/sortie.txt 2>&1 &
+      tail -f ~/Bureau/sortie.txt
+  Seul le tail peut se figer, la capture continue.
 
 EXEMPLES
   Ecoute en direct

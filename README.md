@@ -1,6 +1,6 @@
 # ACARS Decoder - acarsdec_v2.py (English version)
 
-**Version 1.1**
+**Version 1.2**
 
 *French version: see `README_ACARS_RX_FR.md`.*
 
@@ -271,6 +271,51 @@ The same block is appended to the log file if you used `--log`.
   (`pkill acarsdec`; `sudo systemctl stop readsb`).
 - **`aucun message decode` on a file**: check `--fs` and `--format`, or force
   `--carrier <Hz>`.
+- **Fewer messages at maximum gain**: more gain is not more sensitivity. On my
+  R820T the noise floor went from **+5 dB at gain 40 to +11 dB at 49.6**, so
+  distant aircraft drown in it. Start around 40 and only raise it if levels are
+  too low.
+
+### The counter stops but the capture is fine
+
+The `[rx] N message(s) | level ...` lines of `-v` are the proof of life. As long
+as they keep coming every 4 s, the chain works, even if the counter does not
+move: it just means nothing is on the air. Gaps of over a minute are normal on a
+quiet channel. Only when **those lines stop entirely** is something wrong.
+
+### If the RTL drops mid-capture
+
+The RTL can stop feeding the decoder two ways: the `rtl_sdr` process exits, or
+it stays alive and sends nothing (a USB stall). Both used to end a capture in
+silence. They are now detected, reported with a timestamp **on screen and in the
+`--log`**, and the RTL is restarted automatically:
+
+```
+[rx] 2026-07-28 10:09:37  the RTL stopped sending data (rtl_sdr still running) after 214s. Restarting it (1/5), 34 message(s) so far.
+[rx] 2026-07-28 10:09:39  RTL back, capture continues.
+```
+
+It gives up after 5 failed restarts in a row and exits with status 1 instead of
+0, so an overnight capture that died is not mistaken for one that finished. A
+stream that ran at least 30 s before dropping counts as a fresh incident, so a
+single USB hiccup does not eat the retry budget.
+
+### The display freezes but the program is still running
+
+If the output stops dead while the program is clearly alive (`Ctrl+C` still
+works), the **terminal** is blocking, not the decoder. A terminal buffer is only
+1 KB on macOS: once it stops being drained, and an accidental `Ctrl+S` is the
+usual cause, the decoder blocks on its next write within about a minute.
+
+Press **`Ctrl+Q`** and everything scrolls back at once, nothing is lost. To avoid
+it entirely, keep the decoder off the terminal:
+
+```bash
+acarsdecv2 -f 131.550 -g 40 -v --log > ~/Desktop/out.txt 2>&1 &
+tail -f ~/Desktop/out.txt
+```
+
+Only the `tail` can freeze then, and the capture keeps running.
 
 ---
 
