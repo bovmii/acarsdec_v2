@@ -26,8 +26,9 @@ and I control every step, which let me debug the RFSoC ACARS transmitter.
 I validated it three ways. On a `test.wav` recording (2 messages, valid CRC).
 On the **RFSoC** transmission decoded live, which proves that our board's ACARS
 modulation is correct. And on **real air traffic**: 201 messages from 20
-aircraft in one morning over a rooftop antenna in Montreal, 94 % of them passing
-the CRC, the farthest one 280 km away. That capture is in the repository.
+aircraft in two hours, from an antenna set up next to the Ecole nationale
+d'aerotechnique in Saint-Hubert, 94 % of them passing the CRC, the farthest one
+284 km away. That capture is in the repository.
 
 ---
 
@@ -361,7 +362,7 @@ Only the `tail` can freeze then, and the capture keeps running.
 - Decodes the **RFSoC** transmission live via the RTL: valid CRC. It also
   carried a 73 character ATS message unchanged, not just a short test string.
 - Decodes **real air traffic** over an antenna: 201 messages, 20 aircraft,
-  **94 % valid CRC**, range measured at **280 km** (`acquisition_2026-07-28.txt`).
+  **94 % valid CRC**, range measured at **284 km** (`acquisition_2026-07-28.txt`).
 - Cross-checked without trusting the CRC: two position reports from one aircraft
   give a **ground speed of 848 to 933 km/h**, a jet cruise speed. A single wrong
   bit in a position would show up as an absurd figure.
@@ -394,9 +395,14 @@ without a single wrong bit.
 ### Sample capture
 
 `acquisition_2026-07-28.txt` is a **real over the air capture**: 201 messages
-from 20 aircraft, recorded on 131.550 MHz over a rooftop antenna in Montreal on
-28 July 2026, seven runs merged into one file. 94 % of the frames pass the CRC,
-14 carry a position, and the farthest aircraft was 280 km away.
+from 20 aircraft, recorded on 131.550 MHz next to the Ecole nationale
+d'aerotechnique in Saint-Hubert on 28 July 2026, seven runs merged into one
+file. 94 % of the frames pass the CRC, 14 carry a position, and the farthest
+aircraft was 284 km away.
+
+Distances are measured from a reference point, so give the recording site:
+`--pos 45.5175,-73.4169`. Without it they are computed from the default, the
+ETS campus, 12 km away.
 
 ```bash
 python3 analyse_acars.py acquisition_2026-07-28.txt --summary

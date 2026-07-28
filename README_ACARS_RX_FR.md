@@ -27,9 +27,9 @@ chaque etape, ce qui m'a permis de debugger l'emission ACARS du RFSoC.
 Je l'ai valide de trois facons. Sur un enregistrement `test.wav` (2 messages,
 CRC valide). Sur l'emission du **RFSoC** decodee en direct, ce qui prouve que la
 modulation ACARS de notre carte est correcte. Et sur du **vrai trafic aerien** :
-201 messages de 20 avions en une matinee, avec une antenne en toiture a
-Montreal, dont 94 % passent le CRC, le plus lointain a 280 km. Cette capture est
-dans le depot.
+201 messages de 20 avions en deux heures, avec une antenne installee a cote de
+l Ecole nationale d aerotechnique a Saint-Hubert, dont 94 % passent le CRC, le
+plus lointain a 284 km. Cette capture est dans le depot.
 
 ---
 
@@ -366,7 +366,7 @@ Seul le `tail` peut se figer, la capture continue.
   transporte sans alteration un message ATS de 73 caracteres, pas seulement une
   courte chaine de test.
 - Decode du **vrai trafic aerien** a l'antenne : 201 messages, 20 avions,
-  **94 % de CRC valides**, portee mesuree a **280 km**
+  **94 % de CRC valides**, portee mesuree a **284 km**
   (`acquisition_2026-07-28.txt`).
 - Recoupe sans faire confiance au CRC : deux comptes rendus de position d'un
   meme avion donnent une **vitesse sol de 848 a 933 km/h**, soit une vitesse de
@@ -401,10 +401,14 @@ que les deux positions ont ete decodees sans un seul bit faux.
 ### Capture d exemple
 
 `acquisition_2026-07-28.txt` est une **vraie capture sur l air** : 201 messages
-de 20 avions, enregistres sur 131.550 MHz avec une antenne en toiture a
-Montreal le 28 juillet 2026, sept sessions fusionnees en un seul fichier. 94 %
-des trames passent le CRC, 14 portent une position, et l avion le plus lointain
-etait a 280 km.
+de 20 avions, enregistres sur 131.550 MHz a cote de l Ecole nationale
+d aerotechnique a Saint-Hubert le 28 juillet 2026, sept sessions fusionnees en
+un seul fichier. 94 % des trames passent le CRC, 14 portent une position, et
+l avion le plus lointain etait a 284 km.
+
+Les distances se comptent depuis un point de reference, donc indique le lieu
+d enregistrement : `--pos 45.5175,-73.4169`. Sans cette option elles sont
+calculees depuis le defaut, le campus de l ETS, a 12 km de la.
 
 ```bash
 python3 analyse_acars.py acquisition_2026-07-28.txt --summary
